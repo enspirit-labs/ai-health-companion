@@ -1,6 +1,32 @@
 import type { NextConfig } from "next";
 
+/**
+ * Security headers on every response. Deliberately no script-src/style-src CSP:
+ * the MediaPipe WASM runtime and Next's inline bootstrap would need careful
+ * allow-listing, so this CSP only covers directives that cannot break the app.
+ * - The app never frames itself, so framing is refused outright (clickjacking).
+ * - Camera and microphone are used by the assessments on this origin only.
+ *   Clipboard is left alone: chat uses navigator.clipboard.writeText.
+ * - HSTS has no `preload`: that is a one-way commitment for the whole domain.
+ */
+export const SECURITY_HEADERS = [
+  { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+  { key: "X-Frame-Options", value: "DENY" },
+  {
+    key: "Content-Security-Policy",
+    value: "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+  },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()",
+  },
+];
+
 const nextConfig: NextConfig = {
+  // Don't advertise the framework in every response.
+  poweredByHeader: false,
+
   // Lets a build/start run against its own output dir instead of the default
   // .next — needed when another dev server is already running against .next
   // in the same checkout (concurrent writes there corrupt page data).
@@ -15,6 +41,7 @@ const nextConfig: NextConfig = {
   // filenames aren't content-hashed, so no `immutable`).
   async headers() {
     return [
+      { source: "/:path*", headers: SECURITY_HEADERS },
       {
         source: "/cv/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=604800" }],

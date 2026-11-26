@@ -1,6 +1,6 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import {
   ForgotPasswordSchema,
@@ -18,6 +18,8 @@ import {
 } from '@aidoctor/shared';
 
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { AuthCredentialThrottleGuard } from '../common/throttle/auth-credential-throttle.guard';
+import { AuthThrottle } from '../common/throttle/auth-throttle.decorator';
 import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser, type RequestUser } from './decorators/current-user.decorator';
@@ -32,14 +34,20 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  // Per-credential budget instead of the global IP throttle (see AuthCredentialThrottleGuard).
+  @SkipThrottle()
+  @AuthThrottle('signup')
+  @UseGuards(AuthCredentialThrottleGuard)
   @Post('signup')
   async signup(@Body(new ZodValidationPipe(SignupSchema)) body: SignupInput, @Req() req: Request) {
     return this.authService.signup(body, requestMeta(req));
   }
 
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  // Per-credential budget instead of the global IP throttle (see AuthCredentialThrottleGuard).
+  @SkipThrottle()
+  @AuthThrottle('login')
+  @UseGuards(AuthCredentialThrottleGuard)
   @HttpCode(HttpStatus.OK)
   @Post('login')
   async login(@Body(new ZodValidationPipe(LoginSchema)) body: LoginInput, @Req() req: Request) {
@@ -47,7 +55,10 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  // Per-credential budget instead of the global IP throttle (see AuthCredentialThrottleGuard).
+  @SkipThrottle()
+  @AuthThrottle('refresh')
+  @UseGuards(AuthCredentialThrottleGuard)
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   async refresh(@Body(new ZodValidationPipe(RefreshTokenSchema)) body: RefreshTokenInput) {
@@ -55,7 +66,10 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  // Per-credential budget instead of the global IP throttle (see AuthCredentialThrottleGuard).
+  @SkipThrottle()
+  @AuthThrottle('forgot-password')
+  @UseGuards(AuthCredentialThrottleGuard)
   @HttpCode(HttpStatus.OK)
   @Post('forgot-password')
   async forgotPassword(@Body(new ZodValidationPipe(ForgotPasswordSchema)) body: ForgotPasswordInput) {
@@ -64,6 +78,10 @@ export class AuthController {
   }
 
   @Public()
+  // Per-credential budget instead of the global IP throttle (see AuthCredentialThrottleGuard).
+  @SkipThrottle()
+  @AuthThrottle('reset-password')
+  @UseGuards(AuthCredentialThrottleGuard)
   @HttpCode(HttpStatus.OK)
   @Post('reset-password')
   async resetPassword(@Body(new ZodValidationPipe(ResetPasswordSchema)) body: ResetPasswordInput) {
@@ -93,7 +111,10 @@ export class AuthController {
   // Public + refresh-token based: possession of the refresh token is the
   // proof, and it must still work once the short-lived access token expired.
   @Public()
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  // Per-credential budget instead of the global IP throttle (see AuthCredentialThrottleGuard).
+  @SkipThrottle()
+  @AuthThrottle('logout')
+  @UseGuards(AuthCredentialThrottleGuard)
   @HttpCode(HttpStatus.OK)
   @Post('logout')
   async logout(@Body(new ZodValidationPipe(RefreshTokenSchema)) body: RefreshTokenInput, @Req() req: Request) {
