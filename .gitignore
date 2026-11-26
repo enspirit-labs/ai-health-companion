@@ -1,0 +1,21 @@
+node_modules/
+.turbo/
+dist/
+.next/
+out/
+coverage/
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+apps/api/generated/
+apps/api/.data/
+apps/api/prisma/migrations/dev.db
+.vercel/
+.railway/
+
+# Local AI-assistant and editor state
+.claude/
+.agents/
+skills-lock.json

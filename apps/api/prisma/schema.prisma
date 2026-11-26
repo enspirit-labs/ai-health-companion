@@ -1,0 +1,714 @@
+// AI Health Companion — complete data model.
+// Enum string values are kept identical to the corresponding union types in
+// packages/shared so API payloads never need a translation layer.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth / Users
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPPORT
+}
+
+enum AuthProvider {
+  EMAIL
+  GOOGLE
+  APPLE
+}
+
+model User {
+  id              String       @id @default(uuid())
+  /// Supabase Auth user id (sub claim). Null while running against the mock auth provider.
+  supabaseAuthId  String?      @unique
+  email           String       @unique
+  passwordHash    String?
+  fullName        String
+  avatarUrl       String?
+  role            UserRole     @default(USER)
+  authProvider    AuthProvider @default(EMAIL)
+  emailVerifiedAt DateTime?
+  isActive        Boolean      @default(true)
+  /// IANA zone (e.g. "Asia/Kolkata"), captured by silent client-side detection
+  /// and written via PATCH /auth/me. Null until the user's next visit after
+  /// this feature ships; streak bucketing falls back to UTC when null.
+  timezone        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  healthProfile           HealthProfile?
+  consentRecords          ConsentRecord[]
+  assessments             Assessment[]
+  reports                 Report[]
+  chatSessions            ChatSession[]
+  activityLogs            ActivityLog[]
+  passwordResetTokens     PasswordResetToken[]
+  sessions                Session[]
+  wellnessSnapshots       WellnessSnapshot[]
+  feedbackSubmitted       Feedback[]
+  dailyPulseGames         DailyPulseGame[]
+  goals                   UserGoal[]
+  weeklyActionCompletions WeeklyActionCompletion[]
+
+  @@index([email])
+  @@map("users")
+}
+
+/// Values mirror PERSONAL_GOALS in @aidoctor/shared.
+enum PersonalGoal {
+  MOVEMENT
+  SLEEP
+  STRESS
+  HYDRATION
+  SELF_CARE
+}
+
+/// A personal goal the user has chosen. At most two rows per user are `active`
+/// (enforced in GoalsService). Removing a goal sets `active = false` instead
+/// of deleting, so a later re-pick reuses the row.
+model UserGoal {
+  id        String       @id @default(uuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal      PersonalGoal
+  active    Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([userId, goal])
+  @@index([userId, active])
+  @@map("user_goals")
+}
+
+/// One ticked-off weekly action. `actionId` is an id from the shared
+/// WEEKLY_ACTION_CATALOGUE; `weekStart` is the Monday (UTC) of the ISO week.
+/// Kept as a plain row per completion so pilot metrics (E6) can count them.
+model WeeklyActionCompletion {
+  id          String       @id @default(uuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weekStart   DateTime     @db.Date
+  goal        PersonalGoal
+  actionId    String
+  completedAt DateTime     @default(now())
+
+  @@unique([userId, weekStart, actionId])
+  @@index([userId, weekStart])
+  @@map("weekly_action_completions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+/// One row per signed-in device. The refresh token carries this id (`sid`),
+/// and refresh only succeeds while the row is unrevoked and unexpired — so
+/// logout (or a password reset) kills a refresh token server-side even though
+/// the JWT itself would still verify for up to JWT_REFRESH_TTL.
+model Session {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastUsedAt DateTime  @default(now())
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  NON_BINARY
+  PREFER_NOT_TO_SAY
+}
+
+enum BloodGroup {
+  A_POS
+  A_NEG
+  B_POS
+  B_NEG
+  AB_POS
+  AB_NEG
+  O_POS
+  O_NEG
+  UNKNOWN
+}
+
+enum ExerciseLevel {
+  SEDENTARY
+  LIGHT
+  MODERATE
+  ACTIVE
+  ATHLETE
+}
+
+enum DietType {
+  OMNIVORE
+  VEGETARIAN
+  VEGAN
+  PESCATARIAN
+  KETO
+  OTHER
+}
+
+/// Fields beyond userId are nullable because the conversational onboarding
+/// flow persists one answer at a time (see HEALTH_PROFILE_QUESTION_ORDER in
+/// packages/shared) — the row is created on the first answer and filled in
+/// incrementally. HealthProfileService.isComplete() checks all are set.
+model HealthProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  age           Int?
+  gender        Gender?
+  heightCm      Float?
+  weightKg      Float?
+  bloodGroup    BloodGroup     @default(UNKNOWN)
+  exerciseLevel ExerciseLevel?
+  dietType      DietType?
+  sleepHours    Float?
+
+  smoking Boolean @default(false)
+  alcohol Boolean @default(false)
+
+  existingConditions String[] @default([])
+  medications        String[] @default([])
+  allergies          String[] @default([])
+
+  emergencyContactName         String?
+  emergencyContactRelationship String?
+  emergencyContactPhone        String?
+
+  /// Question keys explicitly answered so far (tracks onboarding progress
+  /// independent of column defaults — e.g. smoking defaults to `false` at the
+  /// DB level, which must not be confused with the user having answered it).
+  answeredQuestionKeys String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("health_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Consent (camera / microphone / data processing — required before capture)
+// ---------------------------------------------------------------------------
+
+enum ConsentType {
+  CAMERA
+  MICROPHONE
+  DATA_PROCESSING
+  MARKETING
+}
+
+model ConsentRecord {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      ConsentType
+  granted   Boolean
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime    @default(now())
+
+  @@index([userId, type])
+  @@map("consent_records")
+}
+
+// ---------------------------------------------------------------------------
+// Assessment Engine (shared by all 13 modules)
+// ---------------------------------------------------------------------------
+
+enum AssessmentType {
+  FACE
+  EYE
+  HAIR
+  SKIN
+  TEETH
+  TONGUE
+  VOICE
+  WALKING
+  POSTURE
+  HAND_COORDINATION
+  MEMORY
+  SQUATS
+  MENTAL_WELLNESS
+  LIFESTYLE
+}
+
+enum AssessmentStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+  FAILED
+}
+
+/// FULL is every assessment's existing behavior (unchanged). PULSE is the
+/// Daily Pulse habit-loop check-in — currently only meaningful for
+/// MENTAL_WELLNESS, where it restricts the flow to a 3-question subset (see
+/// DAILY_PULSE_QUESTION_KEYS in @aidoctor/shared). Every pre-existing row
+/// reads back FULL from the column default; no backfill needed.
+enum AssessmentMode {
+  FULL
+  PULSE
+}
+
+enum RiskLevel {
+  LOW
+  MODERATE
+  ELEVATED
+  HIGH
+}
+
+enum AssessmentInputMode {
+  CAMERA_IMAGE
+  CAMERA_VIDEO
+  MICROPHONE_AUDIO
+  QUESTIONNAIRE
+  INTERACTIVE_TEST
+  FILE_UPLOAD
+}
+
+/// One row per assessment run a user takes (e.g. one Face Assessment attempt).
+model Assessment {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type   AssessmentType
+  status AssessmentStatus @default(NOT_STARTED)
+  /// FULL for every assessment type today; PULSE only ever applies to a
+  /// MENTAL_WELLNESS row created by the Daily Pulse check-in. Mode-scoped
+  /// so a FULL and a PULSE row can be in-progress for the same type at once.
+  mode   AssessmentMode   @default(FULL)
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  answers        QuestionnaireAnswer[]
+  mediaAssets    MediaAsset[]
+  visionResults  VisionResult[]
+  voiceResults   VoiceResult[]
+  score          Score?
+  reportSections ReportSection[]
+
+  @@index([userId, type])
+  @@index([userId, status])
+  @@index([userId, type, status, mode])
+  @@index([userId, status, completedAt])
+  @@map("assessments")
+}
+
+/// Persists the one-question-at-a-time conversational flow so a session can resume.
+model QuestionnaireAnswer {
+  id           String     @id @default(uuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  questionKey String
+  question    String
+  answer      Json
+  order       Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([assessmentId, questionKey])
+  @@map("questionnaire_answers")
+}
+
+enum MediaAssetKind {
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
+/// Reference to a file in Supabase Storage — the DB never stores raw bytes.
+model MediaAsset {
+  id           String     @id @default(uuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  kind         MediaAssetKind
+  storagePath  String
+  mimeType     String
+  sizeBytes    Int
+  /// e.g. "front", "left", "top" for multi-angle hair capture, or "left-eye"
+  captureLabel String?
+
+  createdAt DateTime @default(now())
+
+  visionResult VisionResult?
+  voiceResult  VoiceResult?
+
+  @@index([assessmentId])
+  @@map("media_assets")
+}
+
+/// Structured computer-vision / vision-AI output for image or video based modules
+/// (Face, Eye, Hair, Skin, Teeth, Tongue, Posture, Walking).
+model VisionResult {
+  id           String      @id @default(uuid())
+  assessmentId String
+  assessment   Assessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  mediaAssetId String?     @unique
+  mediaAsset   MediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+
+  /// e.g. { skinTexture: "Dry", eyeRedness: "Mild", darkCircles: "Moderate" }
+  observations Json
+  modelName    String
+  confidence   Float
+
+  createdAt DateTime @default(now())
+
+  @@index([assessmentId])
+  @@map("vision_results")
+}
+
+/// Structured voice/audio analysis output (Voice Assessment) — speech speed,
+/// pitch variation, pauses, stability, and Whisper transcript metadata.
+model VoiceResult {
+  id           String      @id @default(uuid())
+  assessmentId String
+  assessment   Assessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  mediaAssetId String?     @unique
+  mediaAsset   MediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+
+  transcript      String?
+  observations    Json
+  durationSeconds Float
+  confidence      Float
+
+  createdAt DateTime @default(now())
+
+  @@index([assessmentId])
+  @@map("voice_results")
+}
+
+/// The final AI-reasoned score for one assessment run — the structured
+/// { score, observations, recommendations, riskLevel, confidence } contract.
+model Score {
+  id           String     @id @default(uuid())
+  assessmentId String     @unique
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  value           Float
+  riskLevel       RiskLevel
+  confidence      Float
+  observations    Json
+  recommendations Recommendation[]
+  disclaimer      String
+
+  createdAt DateTime @default(now())
+
+  @@map("scores")
+}
+
+enum RecommendationPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Recommendation {
+  id      String @id @default(uuid())
+  scoreId String
+  score   Score  @relation(fields: [scoreId], references: [id], onDelete: Cascade)
+
+  title    String
+  detail   String
+  priority RecommendationPriority @default(MEDIUM)
+
+  createdAt DateTime @default(now())
+
+  @@index([scoreId])
+  @@map("recommendations")
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard aggregation / trends
+// ---------------------------------------------------------------------------
+
+/// A point-in-time rollup of all wellness dimensions, written whenever an
+/// assessment completes or on a daily cadence — powers dashboard trend charts.
+model WellnessSnapshot {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  overallScore        Float
+  cardioScore         Float?
+  mentalWellnessScore Float?
+  nutritionScore      Float?
+  hydrationScore      Float?
+  fitnessScore        Float?
+  recoveryScore       Float?
+  sleepScore          Float?
+  lifestyleScore      Float?
+  riskLevel           RiskLevel
+
+  capturedAt DateTime @default(now())
+
+  @@index([userId, capturedAt])
+  @@map("wellness_snapshots")
+}
+
+/// One row per user per calendar day (`dateKey`, "YYYY-MM-DD" in the user's own
+/// timezone — same convention as streak bucketing, see date.util.ts) — the
+/// generated "Something new to try" game, cached so it doesn't regenerate
+/// (or re-call the AI, for Pinpoint) on every dashboard refetch that day.
+model DailyPulseGame {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  dateKey  String
+  gameType String
+  content  Json
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, dateKey])
+  @@map("daily_pulse_games")
+}
+
+// ---------------------------------------------------------------------------
+// Reports
+// ---------------------------------------------------------------------------
+
+enum ReportStatus {
+  GENERATING
+  READY
+  FAILED
+}
+
+model Report {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title          String
+  status         ReportStatus @default(GENERATING)
+  summary        String?
+  shareToken     String?      @unique
+  pdfStoragePath String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sections ReportSection[]
+
+  @@index([userId])
+  @@map("reports")
+}
+
+model ReportSection {
+  id           String      @id @default(uuid())
+  reportId     String
+  report       Report      @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  heading String
+  content Json
+  order   Int
+
+  @@index([reportId])
+  @@map("report_sections")
+}
+
+// ---------------------------------------------------------------------------
+// AI Chat Health Coach
+// ---------------------------------------------------------------------------
+
+model ChatSession {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ChatMessage[]
+
+  @@index([userId])
+  @@map("chat_sessions")
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model ChatMessage {
+  id            String      @id @default(uuid())
+  chatSessionId String
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+
+  role    ChatRole
+  content String
+
+  createdAt DateTime @default(now())
+
+  @@index([chatSessionId])
+  @@map("chat_messages")
+}
+
+// ---------------------------------------------------------------------------
+// Admin: knowledge base, AI prompt templates, questionnaire builder
+// ---------------------------------------------------------------------------
+
+model KnowledgeBaseArticle {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  title     String
+  body      String
+  tags      String[] @default([])
+  published Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("knowledge_base_articles")
+}
+
+model AiPromptTemplate {
+  id             String          @id @default(uuid())
+  key            String          @unique
+  assessmentType AssessmentType?
+  systemPrompt   String
+  version        Int             @default(1)
+  isActive       Boolean         @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ai_prompt_templates")
+}
+
+/// Server-enforced kill-switches, checked inline by the services they gate
+/// (not a route guard — gating differs per method, e.g. AssessmentsService.start
+/// only checks when mode is PULSE, while dashboard endpoints gate wholesale).
+/// A missing row means disabled (fail closed), same spirit as AiPromptTemplate's
+/// key + isActive shape above. FeatureFlagsService caches reads briefly so
+/// toggling here takes effect without a redeploy, not instantly.
+model FeatureFlag {
+  key       String   @id
+  enabled   Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  @@map("feature_flags")
+}
+
+model QuestionnaireDefinition {
+  id             String          @id @default(uuid())
+  key            String          @unique
+  title          String
+  assessmentType AssessmentType?
+  isActive       Boolean         @default(true)
+
+  questions QuestionnaireQuestion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("questionnaire_definitions")
+}
+
+enum QuestionInputType {
+  TEXT
+  NUMBER
+  SINGLE_CHOICE
+  MULTI_CHOICE
+  BOOLEAN
+  SCALE
+}
+
+model QuestionnaireQuestion {
+  id                        String                  @id @default(uuid())
+  questionnaireDefinitionId String
+  questionnaireDefinition   QuestionnaireDefinition @relation(fields: [questionnaireDefinitionId], references: [id], onDelete: Cascade)
+
+  key        String
+  prompt     String
+  inputType  QuestionInputType
+  options    Json?
+  order      Int
+  isRequired Boolean           @default(true)
+
+  @@unique([questionnaireDefinitionId, key])
+  @@map("questionnaire_questions")
+}
+
+// ---------------------------------------------------------------------------
+// Feedback & audit
+// ---------------------------------------------------------------------------
+
+enum FeedbackCategory {
+  BUG
+  FEATURE_REQUEST
+  ASSESSMENT_ACCURACY
+  GENERAL
+}
+
+model Feedback {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  category FeedbackCategory
+  message  String
+  rating   Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("feedback")
+}
+
+model ActivityLog {
+  id     String  @id @default(uuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action    String
+  metadata  Json?
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@map("activity_logs")
+}

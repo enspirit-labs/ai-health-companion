@@ -1,0 +1,645 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Touch sizing is a property of the *input device*, not the viewport — a 1024px
+   touch tablet needs 44px hit targets just as much as a 375px phone does, and a
+   360px-wide desktop window does not. Keep this separate from the `md`
+   breakpoint, which is what governs layout (see the compact-shell note below). */
+@custom-variant coarse (@media (pointer: coarse));
+
+/* The camera stage may only fall back to its inline, contained frame when the
+   viewport is both wide AND tall enough to hold a 4:3 frame plus the controls.
+   A landscape phone is ~812x375: wide enough to pass a width-only `md` check,
+   but far too short — the frame (384px) plus controls (72px) would push the
+   capture button below the fold. Hence a two-axis query rather than `md:`.
+   `cam-full` is its exact complement, for the styles that apply only while the
+   stage is the immersive full-screen overlay. */
+@custom-variant cam-inline (@media (min-width: 48rem) and (min-height: 37.5rem));
+@custom-variant cam-full (@media (max-width: 47.9375rem), (max-height: 37.4375rem));
+
+:root {
+  --radius: 0.75rem;
+
+  /* Enspirit brand tokens — sourced from the documented Terracotta Accent
+     Scale and Neutral Scale in the "Enspirit Website 2026" Figma file
+     (not sampled approximations). Hex, not oklch, to keep them exact. */
+  --background: #f6f5f3; /* N-50 */
+  --foreground: #1c1e2a; /* INK */
+
+  --card: #ffffff;
+  --card-foreground: #1c1e2a;
+
+  --popover: #ffffff;
+  --popover-foreground: #1c1e2a;
+
+  /* Primary: TC-500 — the lightest step on the documented terracotta scale
+     that still clears WCAG AA (4.88:1) against a near-white button label.
+     TC-400 and lighter fail; TC-600+ passes with more margin but reads
+     browner than the brand's warm terracotta. */
+  --primary: #b8523a; /* TC-500 */
+  --primary-foreground: #fefaf8;
+
+  --secondary: #eceae6; /* N-100 */
+  --secondary-foreground: #322d28; /* N-700 */
+
+  --muted: #eceae6; /* N-100 */
+  --muted-foreground: #736d66; /* N-500 — 4.69:1 against N-50 */
+
+  --accent: #f8ddd7; /* TC-100 */
+  --accent-foreground: #a8432c; /* TC-700 — 4.66:1 against TC-100 */
+
+  --destructive: #b23b2e;
+  --destructive-foreground: #fbf1ef;
+
+  --border: #ddd9d3; /* N-200 */
+  --input: #ddd9d3; /* N-200 */
+  --ring: #b8523a;
+
+  /* Enspirit's signature spectrum gradient — hero/marketing accent only, never
+     used for functional UI (buttons, status, data) so it doesn't compete with
+     the status palette below. */
+  --brand-gradient-from: #ea4132;
+  --brand-gradient-via: #a7217e;
+  --brand-gradient-to: #631b6f;
+
+  /* Status palette — fixed, never themed, maps 1:1 to RiskLevel. Always paired
+     with an icon + label (never color alone). Retuned against the Enspirit
+     cream surface; good/critical carry a darkened light-mode text override
+     (see the `--status-*-foreground` tokens below) to clear 4.5:1 at 12px,
+     matching the warning/serious treatment that was already in place. */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+
+  /* Text-on-tint pairing for each status, at the badge's `/15` tint over the
+     card surface — see `badge.tsx`. Darkened in light mode (the base status
+     hues themselves don't clear 4.5:1 at 12px on a light tint); checked
+     against WCAG AA when these values were chosen. */
+  --status-good-foreground: #0b7a2a;
+  --status-warning-foreground: #8a6200;
+  --status-serious-foreground: #a34216;
+  --status-critical-foreground: #8f1f1f;
+
+  /* Single-hue sequential ramp for the wellness-score trend chart (one series). */
+  --chart-1: #b8523a;
+
+  /* Daily-game palette. Sun/moon are the two puzzle tokens — they must stay
+     distinguishable by shape as well as hue (Sun and Moon icons differ), so
+     colour is reinforcement, not the only signal. Violation reuses the
+     critical status red at low alpha for the diagonal hatch. */
+  --tango-sun: #e8961f;
+  --tango-moon: #3f76d4;
+  --tango-violation: rgb(208 59 59 / 0.55);
+
+  --sidebar: #f1eee9;
+  --sidebar-foreground: #1c1e2a;
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+
+.dark {
+  /* Derived from Enspirit's near-black ink rather than a cool navy-gray. */
+  --background: #17161b;
+  --foreground: #f1efec;
+
+  --card: #201f26;
+  --card-foreground: #f1efec;
+
+  --popover: #201f26;
+  --popover-foreground: #f1efec;
+
+  --primary: #d9825b;
+  --primary-foreground: #201005;
+
+  --secondary: #2b2932;
+  --secondary-foreground: #f1efec;
+
+  --muted: #29272e;
+  --muted-foreground: #a8a29b;
+
+  --accent: #3a2a22;
+  --accent-foreground: #f0b795;
+
+  --destructive: #e0685a;
+  --destructive-foreground: #22100c;
+
+  --border: rgb(255 255 255 / 10%);
+  --input: rgb(255 255 255 / 15%);
+  --ring: #d9825b;
+
+  --brand-gradient-from: #ea4132;
+  --brand-gradient-via: #a7217e;
+  --brand-gradient-to: #631b6f;
+
+  /* Same four steps in dark mode — validated against the dark card surface. */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+
+  /* Lightened against the dark card surface; warning/serious reuse the base
+     status hue as-is since it already clears 4.5:1 there. */
+  --status-good-foreground: #2ecc71;
+  --status-warning-foreground: var(--status-warning);
+  --status-serious-foreground: var(--status-serious);
+  --status-critical-foreground: #ef8a82;
+
+  --chart-1: #d9825b;
+
+  /* Brightened against the dark card surface; hatch alpha raised so the
+     violation still reads on a dark cell. */
+  --tango-sun: #f5b53f;
+  --tango-moon: #7aa5f0;
+  --tango-violation: rgb(239 138 130 / 0.6);
+
+  --sidebar: #1c1b21;
+  --sidebar-foreground: #f1efec;
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+
+@theme {
+  /* Bumped 20% over Tailwind's stock scale — the app read too small/cramped
+     at the defaults. Line-heights are unitless ratios in Tailwind's default
+     theme (e.g. --text-sm--line-height: calc(1.25 / 0.875)), so they scale
+     proportionally with these automatically and don't need overriding. */
+  --text-xs: 0.9rem;
+  --text-sm: 0.875rem;
+  --text-base: 1.2rem;
+  --text-lg: 1.35rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.8rem;
+  --text-3xl: 2.25rem;
+  --text-4xl: 2.7rem;
+  --text-5xl: 3.6rem;
+  --text-6xl: 4.5rem;
+  --text-7xl: 5.4rem;
+  --text-8xl: 7.2rem;
+  --text-9xl: 9.6rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-status-good: var(--status-good);
+  --color-status-warning: var(--status-warning);
+  --color-status-serious: var(--status-serious);
+  --color-status-critical: var(--status-critical);
+  --color-status-good-foreground: var(--status-good-foreground);
+  --color-status-warning-foreground: var(--status-warning-foreground);
+  --color-status-serious-foreground: var(--status-serious-foreground);
+  --color-status-critical-foreground: var(--status-critical-foreground);
+
+  --color-chart-1: var(--chart-1);
+
+  --color-brand-gradient-from: var(--brand-gradient-from);
+  --color-brand-gradient-via: var(--brand-gradient-via);
+  --color-brand-gradient-to: var(--brand-gradient-to);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-instrument-sans);
+  /* DM Mono is reserved for small caption/data-style text (tracked
+     uppercase labels, code-like content) — never for headings. See
+     font-serif-accent below for the editorial accent role. */
+  --font-mono: var(--font-dm-mono);
+  --font-serif-accent: var(--font-lora);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Long unbroken strings — emails, report IDs, pasted URLs — must never be
+       able to force a horizontal scrollbar on a 320px screen. */
+    overflow-wrap: break-word;
+  }
+  /* Regression net, NOT the fix: every known overflow cause is fixed at source
+     (header brand, footer logo, camera frame). This only stops a *future*
+     regression reaching users as an app-wide sideways scroll.
+     `clip` rather than `hidden` on purpose — `hidden` on the root element makes
+     it a scroll container, which breaks the `sticky top-0` app header and the
+     `sticky bottom-0` mobile tab bar. `clip` suppresses the scroll without
+     creating one. Because this hides regressions from the eye, the automated
+     scrollWidth assertion is what actually
+     enforces "no horizontal scroll". */
+  html {
+    overflow-x: clip;
+  }
+}
+
+@layer utilities {
+  /* Keeps content clear of the iOS home indicator / Android gesture bar. The
+     `max()` floor means these still read as normal padding on devices with no
+     inset (and on desktop), so call sites don't need a fallback. */
+  .pb-safe {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+  .pt-safe {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+  }
+
+  /* Enspirit's signature spectrum gradient. Reserved for hero/marketing
+     moments (landing page, footer credit) — never for functional UI. */
+  .bg-gradient-enspirit {
+    background-image: linear-gradient(
+      90deg,
+      var(--brand-gradient-from),
+      var(--brand-gradient-via),
+      var(--brand-gradient-to)
+    );
+  }
+  .text-gradient-enspirit {
+    background-image: linear-gradient(
+      90deg,
+      var(--brand-gradient-from),
+      var(--brand-gradient-via),
+      var(--brand-gradient-to)
+    );
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  /* Enspirit's hero background treatment: soft blurred, slowly morphing
+     radial-gradient blobs, topped with a faint fractal-noise grain.
+     Replicated 1:1 from enspirit.co's own CSS (no image asset involved — it
+     never used one). Rendered once, fixed to the viewport, in the root
+     layout — every page gets it, and being fixed (not absolute inside a
+     relative ancestor) means it never has to know the page's actual content
+     height or interact with a sticky header's stacking context. */
+  .blob-field {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: -1;
+  }
+  .blob-field::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+    background-size: 512px 512px;
+  }
+  .blob {
+    position: absolute;
+    border-radius: 40% 60% 55% 45% / 55% 40% 60% 45%;
+    filter: blur(60px);
+    animation: blobMorph 14s cubic-bezier(0.37, 0, 0.63, 1) infinite alternate;
+  }
+  .blob--1 {
+    width: 45%;
+    height: 50%;
+    top: -5%;
+    right: 5%;
+    background: radial-gradient(rgba(235, 102, 82, 0.28) 0px, rgba(232, 165, 145, 0.12) 50%, transparent 80%);
+  }
+  .blob--2 {
+    width: 40%;
+    height: 45%;
+    bottom: 5%;
+    left: 10%;
+    border-radius: 55% 45% 50% 50% / 45% 55%;
+    background: radial-gradient(rgba(212, 103, 74, 0.2) 0px, rgba(245, 203, 188, 0.08) 50%, transparent 80%);
+    animation-delay: -5s;
+  }
+  .blob--3 {
+    width: 35%;
+    height: 40%;
+    top: 30%;
+    left: 35%;
+    border-radius: 50% 50% 45% 55% / 60% 40% 55% 45%;
+    background: radial-gradient(rgba(200, 140, 170, 0.16) 0px, rgba(167, 33, 126, 0.04) 50%, transparent 80%);
+    animation-delay: -9s;
+  }
+  .blob--4 {
+    width: 30%;
+    height: 35%;
+    top: 5%;
+    left: 5%;
+    border-radius: 45% 55% 60% 40% / 50% 50% 45% 55%;
+    background: radial-gradient(rgba(160, 160, 210, 0.1) 0px, rgba(99, 27, 111, 0.03) 50%, transparent 80%);
+    animation-delay: -3s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .blob {
+      animation: none;
+    }
+  }
+
+  /* Shimmer sweep for earned streak milestone badges — a light glint sweeps
+     once in the first ~30% of each 5-second cycle. Invisible the rest of the
+     time so it reads as a subtle reward, not a distraction. */
+  .badge-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .badge-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 15%,
+      rgba(255, 255, 255, 0.6) 50%,
+      transparent 85%
+    );
+    animation: shimmer-sweep 5s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .badge-shimmer::after {
+      animation: none;
+    }
+  }
+
+  /* One-shot sweep across a finished puzzle board — plays once right after
+     solving, before the board is swapped out for the completion card, so the
+     swap reads as a small celebration rather than an instant cut. */
+  .board-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    background: linear-gradient(
+      105deg,
+      transparent 25%,
+      rgba(255, 255, 255, 0.55) 50%,
+      transparent 75%
+    );
+    animation: shimmer-sweep 0.9s ease-out 1;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .board-shimmer::after {
+      animation: none;
+    }
+  }
+
+  /* Landing hero's big icon mark: the heart shape itself stays static; only
+     the ECG line inside it is "live" — a bright dash sweeps along the path,
+     like a monitor tracing a heartbeat. Paired with a pair of expanding
+     "sonar" rings echoing outward from behind the icon. */
+  .ecg-trace {
+    stroke-dasharray: 24 100;
+    animation: ecgTrace 2s linear infinite;
+  }
+  .pulse-ring {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    border-radius: 9999px;
+    border: 2px solid var(--primary);
+    animation: pulseRing 1.8s ease-out infinite;
+  }
+  .pulse-ring--delay {
+    animation-delay: 0.9s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pulse-ring {
+      animation: none;
+    }
+    .ecg-trace {
+      animation: none;
+      stroke-dasharray: none;
+    }
+  }
+
+  /* The spectrum-gradient accent bar Enspirit's system documents for
+     "navbars, footers, modals, section dividers, cards" — a thin gradient
+     strip pinned to the top edge, clipped to match whatever border-radius
+     the element already has. */
+  .stripe-top {
+    position: relative;
+  }
+  .stripe-top::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: inherit;
+    background-image: linear-gradient(
+      90deg,
+      var(--brand-gradient-from),
+      var(--brand-gradient-via),
+      var(--brand-gradient-to)
+    );
+  }
+  /* Thinner variant of the stripe above — used where a 3px bar reads too
+     heavy, e.g. the compliance footer. */
+  .stripe-top-thin::before {
+    height: 1px;
+  }
+
+}
+
+/* Premium AI-scan UI keyframes/utilities — originally built for the Face
+   Assessment (face-mesh-capture.tsx) and now shared by every capture/test
+   screen using this same visual language (Teeth via teeth-capture.tsx,
+   Squats via squats-test.tsx): ambient glow-halo pulse, a draw-on checkmark,
+   shake/burst/tick one-shots, and the guidance-toast slide-up. Kept as its
+   own block since nothing else in the app uses this palette (see
+   lib/cv/face-scan-theme.ts for the hex values themselves — deliberately NOT
+   the brand terracotta tokens above: these are full-bleed, always-dark
+   camera overlays, same reasoning CameraStage already uses for its own
+   black/white chrome regardless of app theme). */
+@layer utilities {
+  .face-scan-glow-pulse {
+    animation: faceScanGlowPulse 3.5s ease-in-out infinite alternate;
+  }
+  .face-scan-checkmark-path {
+    stroke-dasharray: 40;
+    stroke-dashoffset: 40;
+    animation: faceScanDrawCheck 0.45s ease-out 0.1s forwards;
+  }
+  .face-scan-shake {
+    animation: faceScanShake 0.4s ease-in-out;
+  }
+  .face-scan-burst {
+    animation: faceScanBurst 0.7s ease-out forwards;
+  }
+  .face-scan-countdown-tick {
+    animation: faceScanCountdownTick 1s ease-out;
+  }
+  .face-scan-toast-enter {
+    animation: faceScanToastIn 0.35s ease-out forwards;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .face-scan-glow-pulse {
+      animation: none;
+    }
+    .face-scan-shake,
+    .face-scan-burst,
+    .face-scan-countdown-tick,
+    .face-scan-toast-enter,
+    .face-scan-checkmark-path {
+      animation-duration: 0.01ms;
+      animation-iteration-count: 1;
+      stroke-dashoffset: 0;
+    }
+  }
+}
+
+@keyframes faceScanGlowPulse {
+  from {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes faceScanDrawCheck {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes faceScanShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes faceScanBurst {
+  from {
+    transform: translate(-50%, -50%) rotate(var(--burst-angle, 0deg)) translateY(0) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(var(--burst-angle, 0deg)) translateY(-90px) scale(0);
+    opacity: 0;
+  }
+}
+
+@keyframes faceScanCountdownTick {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  30% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes faceScanToastIn {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes ecgTrace {
+  from {
+    stroke-dashoffset: 124;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes pulseRing {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-200%) skewX(-12deg); }
+  30% { transform: translateX(300%) skewX(-12deg); }
+  100% { transform: translateX(300%) skewX(-12deg); }
+}
+
+
+@keyframes blobMorph {
+  0% {
+    border-radius: 40% 60% 55% 45% / 55% 40% 60% 45%;
+    transform: rotate(0deg) scale(1);
+  }
+  33% {
+    border-radius: 55% 45% 40% 60% / 45% 55% 50% 50%;
+  }
+  66% {
+    border-radius: 45% 55% 60% 40% / 50% 50% 45% 55%;
+  }
+  100% {
+    border-radius: 60% 40% 45% 55% / 40% 60% 55% 45%;
+    transform: rotate(4deg) scale(1.04);
+  }
+}

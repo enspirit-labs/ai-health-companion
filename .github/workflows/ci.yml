@@ -1,0 +1,154 @@
+name: CI
+
+# Test and security gate: unit tests, API e2e on Postgres, Semgrep, Gitleaks.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  unit:
+    name: Unit gate and claims-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable pnpm (version from packageManager)
+        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate Prisma client
+        run: pnpm --filter @aidoctor/api exec prisma generate
+      # --force goes to turbo directly so a cached result can never mask a failure.
+      - name: Full regression gate
+        run: TZ=UTC pnpm exec turbo run test --force
+      - name: Claims lint
+        run: node scripts/claims-lint.mjs
+
+  api-e2e:
+    name: API e2e (throwaway Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: aidoctor_e2e
+          POSTGRES_USER: aidoctor
+          POSTGRES_PASSWORD: aidoctor
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aidoctor -d aidoctor_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://aidoctor:aidoctor@localhost:5432/aidoctor_e2e
+      NODE_ENV: test
+      # Throwaway value for the service container only; not a real secret.
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789abcdef
+      WEB_APP_URL: http://localhost:4000
+      # The auth spec runs forgot/reset password and needs the dev reset token in the response.
+      EXPOSE_DEV_RESET_TOKEN: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build shared
+        run: pnpm --filter @aidoctor/shared build
+      - name: Generate Prisma client
+        run: pnpm --filter @aidoctor/api exec prisma generate
+      - name: Apply migrations
+        run: pnpm --filter @aidoctor/api exec prisma migrate deploy
+      - name: Seed reference data (questionnaires, prompt templates)
+        run: pnpm --filter @aidoctor/api prisma:seed
+      - name: Run e2e specs
+        run: pnpm --filter @aidoctor/api test:e2e
+
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: semgrep/semgrep:1.97.0
+    steps:
+      - uses: actions/checkout@v4
+      # Fails the job on any ERROR-severity (high) finding.
+      - name: Semgrep scan
+        run: >-
+          semgrep scan
+          --config p/nodejs --config p/typescript
+          --severity ERROR --error
+          --exclude node_modules --exclude dist --exclude .next
+          --metrics off
+
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.21.2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Binary release rather than gitleaks-action, which needs a paid licence
+      # secret for organisation repos.
+      - name: Install gitleaks
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
+          ./gitleaks version
+      - name: Scan history
+        run: ./gitleaks detect --source . --redact --verbose --exit-code 1
+
+  safety-coverage:
+    name: Safety-module coverage (report only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aidoctor/shared build
+      - run: pnpm --filter @aidoctor/api exec prisma generate
+      # Report only. Target is >=95%; not enforced yet. Paths are relative to
+      # jest rootDir (apps/api/src). The red-flag, output-filter and support-card
+      # rules live in packages/shared (vitest); reporting coverage there needs
+      # @vitest/coverage-v8, which is not a dependency, so it is skipped for now.
+      - name: Coverage for API safety code
+        run: >-
+          TZ=UTC pnpm --filter @aidoctor/api exec jest chat consent ai
+          --coverage --coverageReporters=text --coverageReporters=json-summary
+          --collectCoverageFrom='chat/chat.service.ts'
+          --collectCoverageFrom='ai/safety-classifier-prompt.ts'
+          --collectCoverageFrom='ai/providers/anthropic-ai.provider.ts'
+          --collectCoverageFrom='consent/**/*.ts'
+          --collectCoverageFrom='!**/*.spec.ts'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: safety-coverage
+          path: apps/api/coverage/
